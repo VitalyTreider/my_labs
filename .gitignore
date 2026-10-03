@@ -5,3 +5,10 @@ bin/
 *.so
 data/
 .vscode/
+*.csv
+*.zip
+*.data
+*.names
+*.bin
+.cache/
+.clinerules
