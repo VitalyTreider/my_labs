@@ -1,15 +1,27 @@
-// ---------------------------------------------------------------------------
-// main.cpp — консольное приложение лабораторной работы №1 (заглушка).
-//
-// Пользовательское меню и взаимодействие с датасетом реализуются
-// студентом самостоятельно (см. AGENTS.md, разделы 2–3).
-//
-// Пока это минимальная заглушка: печатает сообщение и завершается с кодом 0,
-// чтобы цель lab1_app корректно собиралась и запускалась.
-// ---------------------------------------------------------------------------
+#include "dataset.hpp"
 #include <iostream>
 
 int main() {
-    std::cout << "lab1_app: каркас готов, логика будет добавлена студентом.\n";
+    try {
+        CsvConfig config;
+        Dataset ds = Dataset::load("data/credit_approval.csv", config);
+
+        std::cout << "Загружено строк: " << ds.rows() << "\n";
+        std::cout << "Загружено столбцов: " << ds.cols() << "\n\n";
+
+        for (const auto& name : ds.feature_names()) {
+            const Column& col = ds.get_column(name);
+
+            if (std::holds_alternative<NumericColumn>(col)) {
+                std::cout << "Столбец " << name << ": Числовой (Numeric)\n";
+            } else {
+                std::cout << "Столбуц " << name << ": Категориальный (Categorical)\n";
+            }
+        }
+    } catch (const std::exception& ex) {
+        std::cerr << "Ошибка: " << ex.what() << "\n";
+        return 1;
+    }
+
     return 0;
 }
