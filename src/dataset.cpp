@@ -1,5 +1,6 @@
 #include "dataset.hpp"
 
+#include <span>
 #include <charconv>
 #include <fstream>
 #include <sstream>
@@ -165,104 +166,100 @@ Dataset Dataset::load(const std::filesystem::path& path, const CsvConfig& config
     return dataset;
 }
 
-NumericStatistics compute_numeric_stats(const NumericColumn& col) {
-    NumericStatistics stats;
-    std::vector<double> valid_values;
-    for (const auto& opt_val : col.values){
-        if(opt_val.has_value()) {
-            valid_values.push_back(opt_val.value());
-        } else {
-            ++stats.num_passes;
-        }
+
+
+NumericFeatureInfo calculate_numeric_info(std::span<const double> valid_values, size_t missing_count) {
+    NumericFeatureInfo stats{};
+    stats.missing_count = missing_count;
+
+    if (valid_values.empty()) {
+        return stats;
     }
 
-    if (valid_values.empty()){
-        throw std::runtime_error("There is no data for calculation.");
-    }
+    // Копируем данные для сортировки (span менять нельзя)
+    std::vector<double> sorted_vals(valid_values.begin(), valid_values.end());
+    std::ranges::sort(sorted_vals);
 
-    std::sort(valid_values.begin(), valid_values.end());
-    stats.min_val = valid_values.front();
-    stats.max_val = valid_values.back();
-    double sum = std::accumulate(valid_values.begin(), valid_values.end(), 0.0);
-    stats.mean = sum / valid_values.size();
+    stats.min = sorted_vals.front();
+    stats.max = sorted_vals.back();
+
+    double sum = std::accumulate(sorted_vals.begin(), sorted_vals.end(), 0.0);
+    stats.mean = sum / sorted_vals.size();
+
     double vars = 0;
-
-    for (const auto opt_val : valid_values){
-        vars += (opt_val - stats.mean) * (opt_val - stats.mean);
+    for (double val : sorted_vals) {
+        vars += (val - stats.mean) * (val - stats.mean);
     }
-    if (valid_values.size() > 1) {
-        stats.variance = vars / (valid_values.size() - 1);
-    } else {
-        stats.variance = 0;
-    }
+    stats.variance = sorted_vals.size() > 1 ? vars / (sorted_vals.size() - 1) : 0.0;
 
-    size_t mid = valid_values.size() / 2;
-    if (valid_values.size() % 2 == 0) {
-        stats.median = (valid_values[mid] + valid_values[mid-1]) / 2.0;
-    } else {
-        stats.median = valid_values[mid];
-    }
-    
-    size_t in_q05 = static_cast<size_t>(valid_values.size() * 0.05);
-    size_t in_q25 = static_cast<size_t>(valid_values.size() * 0.25);
-    size_t in_q75 = static_cast<size_t>(valid_values.size() * 0.75);
-    size_t in_q95 = static_cast<size_t>(valid_values.size() * 0.95);
-    stats.q05 = valid_values[in_q05];
-    stats.q25 = valid_values[in_q25];
-    stats.q75 = valid_values[in_q75];
-    stats.q95 = valid_values[in_q95];
+    size_t mid = sorted_vals.size() / 2;
+    stats.median = (sorted_vals.size() % 2 == 0) ?
+                   (sorted_vals[mid] + sorted_vals[mid-1]) / 2.0 :
+                   sorted_vals[mid];
 
-    return stats;
-}
+    stats.q05 = sorted_vals[static_cast<size_t>(sorted_vals.size() * 0.05)];
+    stats.q25 = sorted_vals[static_cast<size_t>(sorted_vals.size() * 0.25)];
+    stats.q75 = sorted_vals[static_cast<size_t>(sorted_vals.size() * 0.75)];
+    stats.q95 = sorted_vals[static_cast<size_t>(sorted_vals.size() * 0.95)];
 
-CategoricalStatistics compute_categorical_stats(const CategoricalColumn& col) {
-    CategoricalStatistics stats;
-    for (const auto& opt_val : col.values){
-        if(opt_val.has_value()) {
-            stats.frequencies[opt_val.value()]++;
-        } else {
-            ++stats.num_passes;
+    stats.histogram_counts.assign(10, 0);
+    if (stats.max > stats.min) {
+        double bin_width = (stats.max - stats.min) / 10.0;
+        for (double val : valid_values) {
+            int bin = static_cast<int>((val - stats.min) / bin_width);
+            if (bin >= 10) bin = 9;
+            stats.histogram_counts[bin]++;
         }
-    }
-
-    for (const auto& [category, count] : stats.frequencies) {
-        stats.categories.push_back(category);
+    } else {
+        stats.histogram_counts[0] = valid_values.size();
     }
 
     return stats;
 }
 
-void impute_missing_values(Dataset& ds) {
-    for (const auto& name : ds.feature_names()) {
-        Column& col = ds.get_column_mut(name);
-        if (std::holds_alternative<NumericColumn>(col)){
-            NumericColumn& num_col = std::get<NumericColumn>(col);
-            NumericStatistics stats = compute_numeric_stats(num_col);
 
-            for (auto& val : num_col.values) {
-                if(!val.has_value()){
-                    val = stats.median;
+DatasetInfo Dataset::analyze() const {
+    DatasetInfo info;
+
+    for (const auto& name : feature_names_) {
+        const Column& col = columns_.at(name);
+
+        if (std::holds_alternative<NumericColumn>(col)) {
+            const auto& num_col = std::get<NumericColumn>(col);
+            std::vector<double> valid_values;
+            size_t missing_count = 0;
+
+            for (const auto& opt_val : num_col.values) {
+                if (opt_val.has_value()) {
+                    valid_values.push_back(opt_val.value());
+                } else {
+                    missing_count++;
                 }
             }
+
+            
+            info[name] = calculate_numeric_info(std::span<const double>(valid_values), missing_count);
+
         } else if (std::holds_alternative<CategoricalColumn>(col)) {
-            CategoricalColumn& cat_col = std::get<CategoricalColumn>(col);
-            CategoricalStatistics stats = compute_categorical_stats(cat_col);
+            const auto& cat_col = std::get<CategoricalColumn>(col);
+            CategoricalFeatureInfo cat_stats;
+            cat_stats.missing_count = 0;
 
-            std::string mode = "";
-            size_t max_freq = 0;
-
-            for (const auto& [category, freq] : stats.frequencies) {
-                if (!category.empty() && freq > max_freq) {
-                    mode = category;
-                    max_freq = freq;
+            for (const auto& opt_val : cat_col.values) {
+                if (opt_val.has_value()) {
+                    cat_stats.frequencies[opt_val.value()]++;
+                } else {
+                    cat_stats.missing_count++;
                 }
             }
 
-            for (auto& val : cat_col.values) {
-                if (!val.has_value()) {
-                    val = mode;
-                }
+            for (const auto& [category, count] : cat_stats.frequencies) {
+                cat_stats.categories.push_back(category);
             }
+
+            info[name] = cat_stats;
         }
     }
+
+    return info;
 }

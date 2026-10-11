@@ -3,7 +3,6 @@
 #include <stdexcept>
 #include <string>
 
-
 #define ASSERT_EQUAL(expected, actual) \
     if ((expected) != (actual)) { \
         throw std::runtime_error("Assertion failed: " + std::to_string(expected) + " != " + std::to_string(actual)); \
@@ -16,7 +15,6 @@
 void test_dataset_loading() {
     CsvConfig config;
     Dataset ds = Dataset::load("../data/credit_approval.csv", config);
-
 
     ASSERT_EQUAL(690, ds.rows());
     ASSERT_EQUAL(16, ds.cols());
@@ -41,14 +39,18 @@ void test_numeric_stats() {
     CsvConfig config;
     Dataset ds = Dataset::load("../data/credit_approval.csv", config);
 
-    const Column& col = ds.get_column("A2");
-    const NumericColumn& num_col = std::get<NumericColumn>(col);
+    // Новый способ: получаем всю статистику один раз
+    DatasetInfo info = ds.analyze();
+    
+    const FeatureInfo& f_info = info.at("A2");
+    ASSERT_TRUE(std::holds_alternative<NumericFeatureInfo>(f_info), "A2 should be NumericFeatureInfo");
 
-    NumericStatistics stats = compute_numeric_stats(num_col);
+    const auto& stats = std::get<NumericFeatureInfo>(f_info);
 
-    ASSERT_TRUE(stats.min_val < stats.max_val, "Min should be less than Max");
-    ASSERT_TRUE(stats.mean > stats.min_val && stats.mean < stats.max_val, "Mean should be between Min and Max");
-    ASSERT_TRUE(stats.median >= stats.min_val && stats.median <= stats.max_val, "Median should be valid");
+    // В новых структурах переменные называются min и max
+    ASSERT_TRUE(stats.min < stats.max, "Min should be less than Max");
+    ASSERT_TRUE(stats.mean > stats.min && stats.mean < stats.max, "Mean should be between Min and Max");
+    ASSERT_TRUE(stats.median >= stats.min && stats.median <= stats.max, "Median should be valid");
     ASSERT_TRUE(stats.q05 <= stats.q25 && stats.q25 <= stats.q75 && stats.q75 <= stats.q95, "Quantiles should be in ascending order");
 
     std::cout << "test_numeric_stats OK!\n";
@@ -58,10 +60,14 @@ void test_categoric_stats() {
     CsvConfig config;
     Dataset ds = Dataset::load("../data/credit_approval.csv", config);
 
-    const Column& col = ds.get_column("A1");
-    const CategoricalColumn& cat_col = std::get<CategoricalColumn>(col);
+    // Новый способ: получаем всю статистику один раз
+    DatasetInfo info = ds.analyze();
 
-    CategoricalStatistics stats = compute_categorical_stats(cat_col);
+    const FeatureInfo& f_info = info.at("A1");
+    ASSERT_TRUE(std::holds_alternative<CategoricalFeatureInfo>(f_info), "A1 should be CategoricalFeatureInfo");
+
+    const auto& stats = std::get<CategoricalFeatureInfo>(f_info);
+    
     ASSERT_TRUE(stats.categories.size() > 0 && stats.frequencies.size() > 0, "Categorical stats should have categories and frequencies");
     std::cout << "test_categoric_stats OK!\n";
 }

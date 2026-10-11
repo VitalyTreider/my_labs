@@ -1,48 +1,39 @@
 #include "view.hpp"
 
-void print_dataset_summary(const Dataset& ds) {
-    // ВЕРХУШКА ТАБЛИЦЫ
+void print_dataset_summary(const Dataset& ds, const DatasetInfo& info) {
     std::cout << "\n=========================================\n";
     std::cout << "           DATASET SUMMARY               \n";
     std::cout << "=========================================\n";
-    // Замени ds.rows_count() и ds.cols_count() на свои методы, если они называются иначе
     std::cout << "Total rows: " << ds.rows() << "\n"; 
     std::cout << "Total cols: " << ds.cols() << "\n";
     std::cout << "-----------------------------------------\n";
     
-    // ЗАГОЛОВОК КОЛОНОК
     std::cout << std::left 
               << std::setw(15) << "Column Name" 
-              << std::setw(12) << "Type" 
-              << std::setw(10) << "Missing Values" << "\n";
+              << std::setw(15) << "Type" 
+              << std::setw(15) << "Missing Values" << "\n";
     std::cout << "-----------------------------------------\n";
 
     int total_missing = 0;
 
-    // ЦИКЛ ПО КОЛОНКАМ (адаптируй под свой метод итерации)
-    // Предположим, у тебя есть геттер имен колонок ds.get_column_names()
     for (const auto& name : ds.feature_names()) {
-        const auto& col = ds.get_column(name);
+        // Достаем УЖЕ ПОСЧИТАННУЮ статистику
+        const FeatureInfo& f_info = info.at(name);
         
         std::string type_str;
         size_t missing_count = 0;
 
-        // Проверяем тип колонки через std::holds_alternative
-        if (std::holds_alternative<NumericColumn>(col)) {
+        // Проверяем, числовая она или текстовая
+        if (std::holds_alternative<NumericFeatureInfo>(f_info)) {
             type_str = "Numeric";
-            const auto& num_col = std::get<NumericColumn>(col);
-            NumericStatistics stats = compute_numeric_stats(num_col);
-            missing_count = stats.num_passes;
-        } else if (std::holds_alternative<CategoricalColumn>(col)) {
+            missing_count = std::get<NumericFeatureInfo>(f_info).missing_count;
+        } else if (std::holds_alternative<CategoricalFeatureInfo>(f_info)) {
             type_str = "Categorical";
-            const auto& cat_col = std::get<CategoricalColumn>(col);
-            CategoricalStatistics stats = compute_categorical_stats(cat_col);
-            missing_count = stats.num_passes;
+            missing_count = std::get<CategoricalFeatureInfo>(f_info).missing_count;
         }
 
         total_missing += missing_count;
 
-        // ВЫВОД СТРОКИ
         std::cout << std::left 
                   << std::setw(15) << name 
                   << std::setw(15) << type_str 
@@ -54,11 +45,10 @@ void print_dataset_summary(const Dataset& ds) {
     std::cout << "=========================================\n\n";
 }
 
-void print_categorical_histogram(const std::string& col_name, const CategoricalStatistics& stats) {
+void print_categorical_histogram(const std::string& col_name, const CategoricalFeatureInfo& stats) {
     std::cout << "Histogram for Categorical Column: " << col_name << "\n";
     std::cout << "--------------------------------------------------\n";
     
-    // Ищем максимальную частоту для масштабирования графика
     size_t max_freq = 0;
     for (const auto& [cat, freq] : stats.frequencies) {
         if (freq > max_freq) max_freq = freq;
@@ -69,19 +59,47 @@ void print_categorical_histogram(const std::string& col_name, const CategoricalS
         return;
     }
 
-    const int MAX_BAR_LENGTH = 50; // Максимальное количество звездочек в строке
+    const int MAX_BAR_LENGTH = 50; 
 
-    // Выводим категории по порядку (из вектора stats.categories)
     for (const auto& cat : stats.categories) {
         size_t freq = stats.frequencies.at(cat);
-        
-        // Масштабируем длину полоски
         int bar_length = static_cast<int>((static_cast<double>(freq) / max_freq) * MAX_BAR_LENGTH);
-        
-        // Если категория пустая (пропуск), выводим "?"
         std::string display_cat = cat.empty() ? "?" : cat;
 
         std::cout << std::left << std::setw(5) << display_cat << " | "
+                  << std::string(bar_length, '*') 
+                  << " (" << freq << ")\n";
+    }
+    std::cout << "--------------------------------------------------\n\n";
+}
+
+void print_numeric_histogram(const std::string& col_name, const NumericFeatureInfo& stats) {
+    std::cout << "Histogram for Numeric Column: " << col_name << "\n";
+    std::cout << "--------------------------------------------------\n";
+
+    if (stats.histogram_counts.empty()) {
+        std::cout << "No data to display.\n\n";
+        return;
+    }
+
+    size_t max_freq = 0;
+    for (size_t count : stats.histogram_counts) {
+        if (count > max_freq) max_freq = count;
+    }
+
+    const int MAX_BAR_LENGTH = 50;
+    const int NUM_BINS = 10;
+    double bin_width = (stats.max - stats.min) / NUM_BINS;
+
+    for (int i = 0; i < NUM_BINS; ++i) {
+        double bin_start = stats.min + i * bin_width;
+        double bin_end = bin_start + bin_width;
+        size_t freq = stats.histogram_counts[i];
+
+        int bar_length = max_freq == 0 ? 0 : static_cast<int>((static_cast<double>(freq) / max_freq) * MAX_BAR_LENGTH);
+
+        std::cout << "[" << std::fixed << std::setprecision(2) << std::setw(6) << bin_start << ", "
+                  << std::setw(6) << bin_end << ") | "
                   << std::string(bar_length, '*') 
                   << " (" << freq << ")\n";
     }
