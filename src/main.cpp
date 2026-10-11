@@ -23,6 +23,12 @@ int main() {
         const auto& col_a1 = std::get<CategoricalColumn>(ds.get_column("A1"));
         CategoricalStatistics stats_a1 = compute_categorical_stats(col_a1);
         print_categorical_histogram("A1", stats_a1);
+
+        std::cout << "\n--- Запуск заполнения пропусков ---\n";
+        impute_missing_values(ds);
+    
+        std::cout << "\n--- Таблица после очистки ---\n";
+        print_dataset_summary(ds);
     } catch (const std::exception& ex) {
         std::cerr << "Ошибка: " << ex.what() << "\n";
         return 1;

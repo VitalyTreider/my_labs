@@ -231,3 +231,38 @@ CategoricalStatistics compute_categorical_stats(const CategoricalColumn& col) {
 
     return stats;
 }
+
+void impute_missing_values(Dataset& ds) {
+    for (const auto& name : ds.feature_names()) {
+        Column& col = ds.get_column_mut(name);
+        if (std::holds_alternative<NumericColumn>(col)){
+            NumericColumn& num_col = std::get<NumericColumn>(col);
+            NumericStatistics stats = compute_numeric_stats(num_col);
+
+            for (auto& val : num_col.values) {
+                if(!val.has_value()){
+                    val = stats.median;
+                }
+            }
+        } else if (std::holds_alternative<CategoricalColumn>(col)) {
+            CategoricalColumn& cat_col = std::get<CategoricalColumn>(col);
+            CategoricalStatistics stats = compute_categorical_stats(cat_col);
+
+            std::string mode = "";
+            size_t max_freq = 0;
+
+            for (const auto& [category, freq] : stats.frequencies) {
+                if (!category.empty() && freq > max_freq) {
+                    mode = category;
+                    max_freq = freq;
+                }
+            }
+
+            for (auto& val : cat_col.values) {
+                if (!val.has_value()) {
+                    val = mode;
+                }
+            }
+        }
+    }
+}

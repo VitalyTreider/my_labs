@@ -36,6 +36,7 @@ private:
 
 public:
     static Dataset load(const std::filesystem::path& path, const CsvConfig& config);
+    Column& get_column_mut(const std::string& name) { return columns_.at(name); }
 
     std::size_t rows() const {return row_count_;}
     std::size_t cols() const {return feature_names_.size();}
@@ -65,3 +66,5 @@ struct CategoricalStatistics {
 };
 
 CategoricalStatistics compute_categorical_stats(const CategoricalColumn& col);
+
+void impute_missing_values(Dataset& ds);
