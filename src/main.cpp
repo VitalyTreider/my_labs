@@ -1,4 +1,5 @@
 #include "dataset.hpp"
+#include "view.hpp"
 #include <iostream>
 
 int main() {
@@ -18,6 +19,10 @@ int main() {
                 std::cout << "Столбуц " << name << ": Категориальный (Categorical)\n";
             }
         }
+        print_dataset_summary(ds);
+        const auto& col_a1 = std::get<CategoricalColumn>(ds.get_column("A1"));
+        CategoricalStatistics stats_a1 = compute_categorical_stats(col_a1);
+        print_categorical_histogram("A1", stats_a1);
     } catch (const std::exception& ex) {
         std::cerr << "Ошибка: " << ex.what() << "\n";
         return 1;

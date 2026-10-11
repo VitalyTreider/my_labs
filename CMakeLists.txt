@@ -48,6 +48,7 @@ endif()
 # Заголовки: include/, исходники: src/. Здесь будет жить код студента.
 add_library(lab_core STATIC
     src/dataset.cpp
+    src/view.cpp
 )
 target_include_directories(lab_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include

@@ -11,4 +11,4 @@ data/
 *.names
 *.bin
 .cache/
-.clinerules
+.clinerulesopencode.json
