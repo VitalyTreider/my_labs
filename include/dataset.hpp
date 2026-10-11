@@ -44,7 +44,7 @@ public:
 };
 
 struct NumericStatistics {
-    double num_passes;
+    size_t num_passes;
     double min_val;
     double max_val;
     double mean;
@@ -57,3 +57,11 @@ struct NumericStatistics {
 };
 
 NumericStatistics compute_numeric_stats(const NumericColumn& col);
+
+struct CategoricalStatistics {
+    size_t num_passes;
+    std::vector<std::string> categories;
+    std::unordered_map<std::string, size_t> frequencies;
+};
+
+CategoricalStatistics compute_categorical_stats(const CategoricalColumn& col);

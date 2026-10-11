@@ -54,11 +54,24 @@ void test_numeric_stats() {
     std::cout << "test_numeric_stats OK!\n";
 }
 
+void test_categoric_stats() {
+    CsvConfig config;
+    Dataset ds = Dataset::load("../data/credit_approval.csv", config);
+
+    const Column& col = ds.get_column("A1");
+    const CategoricalColumn& cat_col = std::get<CategoricalColumn>(col);
+
+    CategoricalStatistics stats = compute_categorical_stats(cat_col);
+    ASSERT_TRUE(stats.categories.size() > 0 && stats.frequencies.size() > 0, "Categorical stats should have categories and frequencies");
+    std::cout << "test_categoric_stats OK!\n";
+}
+
 int main() {
     try {
         test_dataset_loading();
         test_column_types();
         test_numeric_stats();
+        test_categoric_stats();
     } catch (const std::exception& e) {
         std::cerr << "Test failed: " << e.what() << "\n";
         return 1; 

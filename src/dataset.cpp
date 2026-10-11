@@ -214,3 +214,20 @@ NumericStatistics compute_numeric_stats(const NumericColumn& col) {
 
     return stats;
 }
+
+CategoricalStatistics compute_categorical_stats(const CategoricalColumn& col) {
+    CategoricalStatistics stats;
+    for (const auto& opt_val : col.values){
+        if(opt_val.has_value()) {
+            stats.frequencies[opt_val.value()]++;
+        } else {
+            ++stats.num_passes;
+        }
+    }
+
+    for (const auto& [category, count] : stats.frequencies) {
+        stats.categories.push_back(category);
+    }
+
+    return stats;
+}
