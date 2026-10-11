@@ -37,10 +37,28 @@ void test_column_types() {
     std::cout << "test_column_types OK!\n";
 }
 
+void test_numeric_stats() {
+    CsvConfig config;
+    Dataset ds = Dataset::load("../data/credit_approval.csv", config);
+
+    const Column& col = ds.get_column("A2");
+    const NumericColumn& num_col = std::get<NumericColumn>(col);
+
+    NumericStatistics stats = compute_numeric_stats(num_col);
+
+    ASSERT_TRUE(stats.min_val < stats.max_val, "Min should be less than Max");
+    ASSERT_TRUE(stats.mean > stats.min_val && stats.mean < stats.max_val, "Mean should be between Min and Max");
+    ASSERT_TRUE(stats.median >= stats.min_val && stats.median <= stats.max_val, "Median should be valid");
+    ASSERT_TRUE(stats.q05 <= stats.q25 && stats.q25 <= stats.q75 && stats.q75 <= stats.q95, "Quantiles should be in ascending order");
+
+    std::cout << "test_numeric_stats OK!\n";
+}
+
 int main() {
     try {
         test_dataset_loading();
         test_column_types();
+        test_numeric_stats();
     } catch (const std::exception& e) {
         std::cerr << "Test failed: " << e.what() << "\n";
         return 1; 

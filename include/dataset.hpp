@@ -42,3 +42,18 @@ public:
     const std::vector<std::string>& feature_names() const {return feature_names_;}
     const Column& get_column(const std::string& name) const {return columns_.at(name);}
 };
+
+struct NumericStatistics {
+    double num_passes;
+    double min_val;
+    double max_val;
+    double mean;
+    double median;
+    double variance;
+    double q05;
+    double q25;
+    double q75;
+    double q95;
+};
+
+NumericStatistics compute_numeric_stats(const NumericColumn& col);

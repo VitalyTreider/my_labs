@@ -5,7 +5,8 @@
 #include <sstream>
 #include <stdexcept>
 #include <system_error>
-
+#include <algorithm>
+#include <numeric>
 
 namespace {
 
@@ -162,4 +163,54 @@ Dataset Dataset::load(const std::filesystem::path& path, const CsvConfig& config
     }
 
     return dataset;
+}
+
+NumericStatistics compute_numeric_stats(const NumericColumn& col) {
+    NumericStatistics stats;
+    std::vector<double> valid_values;
+    for (const auto& opt_val : col.values){
+        if(opt_val.has_value()) {
+            valid_values.push_back(opt_val.value());
+        } else {
+            ++stats.num_passes;
+        }
+    }
+
+    if (valid_values.empty()){
+        throw std::runtime_error("There is no data for calculation.");
+    }
+
+    std::sort(valid_values.begin(), valid_values.end());
+    stats.min_val = valid_values.front();
+    stats.max_val = valid_values.back();
+    double sum = std::accumulate(valid_values.begin(), valid_values.end(), 0.0);
+    stats.mean = sum / valid_values.size();
+    double vars = 0;
+
+    for (const auto opt_val : valid_values){
+        vars += (opt_val - stats.mean) * (opt_val - stats.mean);
+    }
+    if (valid_values.size() > 1) {
+        stats.variance = vars / (valid_values.size() - 1);
+    } else {
+        stats.variance = 0;
+    }
+
+    size_t mid = valid_values.size() / 2;
+    if (valid_values.size() % 2 == 0) {
+        stats.median = (valid_values[mid] + valid_values[mid-1]) / 2.0;
+    } else {
+        stats.median = valid_values[mid];
+    }
+    
+    size_t in_q05 = static_cast<size_t>(valid_values.size() * 0.05);
+    size_t in_q25 = static_cast<size_t>(valid_values.size() * 0.25);
+    size_t in_q75 = static_cast<size_t>(valid_values.size() * 0.75);
+    size_t in_q95 = static_cast<size_t>(valid_values.size() * 0.95);
+    stats.q05 = valid_values[in_q05];
+    stats.q25 = valid_values[in_q25];
+    stats.q75 = valid_values[in_q75];
+    stats.q95 = valid_values[in_q95];
+
+    return stats;
 }
