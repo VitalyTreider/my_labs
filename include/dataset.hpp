@@ -54,6 +54,7 @@ using DatasetInfo = std::unordered_map<std::string, FeatureInfo>;
 enum class NumericImputation { Mean, Median, Zero };
 enum class Scaling { MinMax, Standard, Robust };
 enum class Layout { RowMajor, ColumnMajor };
+enum class CategoricalEncoding { OneHot, Ordinal };
 
 // класс плотной числовой матрицы
 class Matrix {
@@ -115,11 +116,11 @@ public:
     static Dataset load(const std::filesystem::path& path, const CsvConfig& config);
     Column& get_column_mut(const std::string& name) { return columns_.at(name); }
 
-    DatasetInfo analyze() const;
+    DatasetInfo analyze(std::size_t num_bins = 10) const;
 
     void impute(const DatasetInfo& info, NumericImputation strategy);
 
-    TransformedDataset transform(const DatasetInfo& info, Scaling scaling, Layout layout) const;
+    TransformedDataset transform(const DatasetInfo& info, Scaling scaling, Layout layout = Layout::RowMajor, CategoricalEncoding encoding = CategoricalEncoding::OneHot) const;
 
     std::size_t rows() const {return row_count_;}
     std::size_t cols() const {return feature_names_.size();}

@@ -88,7 +88,7 @@ void print_numeric_histogram(const std::string& col_name, const NumericFeatureIn
     }
 
     const int MAX_BAR_LENGTH = 50;
-    const int NUM_BINS = 10;
+    const int NUM_BINS = stats.histogram_counts.size();
     double bin_width = (stats.max - stats.min) / NUM_BINS;
 
     for (int i = 0; i < NUM_BINS; ++i) {

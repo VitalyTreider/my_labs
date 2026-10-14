@@ -8,6 +8,7 @@
 #include <system_error>
 #include <algorithm>
 #include <numeric>
+#include <cmath>
 
 namespace {
 
@@ -168,7 +169,7 @@ Dataset Dataset::load(const std::filesystem::path& path, const CsvConfig& config
 
 
 
-NumericFeatureInfo calculate_numeric_info(std::span<const double> valid_values, size_t missing_count) {
+NumericFeatureInfo calculate_numeric_info(std::span<const double> valid_values, size_t missing_count, std::size_t num_bins) {
     NumericFeatureInfo stats{};
     stats.missing_count = missing_count;
 
@@ -176,7 +177,7 @@ NumericFeatureInfo calculate_numeric_info(std::span<const double> valid_values, 
         return stats;
     }
 
-    // Копируем данные для сортировки (span менять нельзя)
+    // копируем данные для сортировки (span менять нельзя)
     std::vector<double> sorted_vals(valid_values.begin(), valid_values.end());
     std::ranges::sort(sorted_vals);
 
@@ -202,12 +203,12 @@ NumericFeatureInfo calculate_numeric_info(std::span<const double> valid_values, 
     stats.q75 = sorted_vals[static_cast<size_t>(sorted_vals.size() * 0.75)];
     stats.q95 = sorted_vals[static_cast<size_t>(sorted_vals.size() * 0.95)];
 
-    stats.histogram_counts.assign(10, 0);
+    stats.histogram_counts.assign(num_bins, 0);
     if (stats.max > stats.min) {
-        double bin_width = (stats.max - stats.min) / 10.0;
+        double bin_width = (stats.max - stats.min) / num_bins;
         for (double val : valid_values) {
-            int bin = static_cast<int>((val - stats.min) / bin_width);
-            if (bin >= 10) bin = 9;
+            std::size_t bin = static_cast<int>((val - stats.min) / bin_width);
+            if (bin >= num_bins) bin = num_bins - 1;
             stats.histogram_counts[bin]++;
         }
     } else {
@@ -218,7 +219,7 @@ NumericFeatureInfo calculate_numeric_info(std::span<const double> valid_values, 
 }
 
 
-DatasetInfo Dataset::analyze() const {
+DatasetInfo Dataset::analyze(std::size_t num_bins) const {
     DatasetInfo info;
 
     for (const auto& name : feature_names_) {
@@ -238,7 +239,7 @@ DatasetInfo Dataset::analyze() const {
             }
 
             
-            info[name] = calculate_numeric_info(std::span<const double>(valid_values), missing_count);
+            info[name] = calculate_numeric_info(std::span<const double>(valid_values), missing_count, num_bins);
 
         } else if (std::holds_alternative<CategoricalColumn>(col)) {
             const auto& cat_col = std::get<CategoricalColumn>(col);
@@ -256,6 +257,7 @@ DatasetInfo Dataset::analyze() const {
             for (const auto& [category, count] : cat_stats.frequencies) {
                 cat_stats.categories.push_back(category);
             }
+            std::ranges::sort(cat_stats.categories);
 
             info[name] = cat_stats;
         }
@@ -274,8 +276,20 @@ void Dataset::impute(const DatasetInfo& info, NumericImputation strategy) {
             const auto& num_stats = std::get<NumericFeatureInfo>(f_info);
 
             for (auto& val : num_col.values){
-                if(strategy == NumericImputation::Median && !val.has_value()){
-                    val = num_stats.median;
+                if(!val.has_value()){
+                    switch (strategy) {
+                        case (NumericImputation::Median):
+                            val = num_stats.median;
+                            break;
+                        case (NumericImputation::Mean):
+                            val = num_stats.mean;
+                            break;
+                        case (NumericImputation::Zero):
+                            val = 0.0;
+                            break;
+                        default:
+                            break;
+                    }
                 }
             }
         } else {
@@ -289,7 +303,7 @@ void Dataset::impute(const DatasetInfo& info, NumericImputation strategy) {
     }
 }
 
-TransformedDataset Dataset::transform(const DatasetInfo& info, Scaling scaling, Layout layout) const {
+TransformedDataset Dataset::transform(const DatasetInfo& info, Scaling scaling, Layout layout, CategoricalEncoding encoding) const {
     std::vector<std::string> new_feature_names;
     std::size_t total_cols = 0;
 
@@ -302,16 +316,20 @@ TransformedDataset Dataset::transform(const DatasetInfo& info, Scaling scaling, 
             new_feature_names.push_back(name);
             total_cols++;
         } else if (std::holds_alternative<CategoricalFeatureInfo>(f_info)) {
-            // категориальный делим на несколько (one hot)
-            const auto& cat_stats = std::get<CategoricalFeatureInfo>(f_info);
+            if (encoding == CategoricalEncoding::OneHot) {
+                const auto& cat_stats = std::get<CategoricalFeatureInfo>(f_info);
             
-            for (const auto& category : cat_stats.categories) {
-                new_feature_names.push_back(name + "_" + category);
-                total_cols++;
-            }
+                for (const auto& category : cat_stats.categories) {
+                    new_feature_names.push_back(name + "_" + category);
+                    total_cols++;
+                }
 
-            if (cat_stats.missing_count > 0) {
-                new_feature_names.push_back(name + "___MISSING__");
+                if (cat_stats.missing_count > 0) {
+                    new_feature_names.push_back(name + "___MISSING__");
+                    total_cols++;
+                }
+            } else {
+                new_feature_names.push_back(name);
                 total_cols++;
             }
         }
@@ -343,6 +361,20 @@ TransformedDataset Dataset::transform(const DatasetInfo& info, Scaling scaling, 
                     } else {
                         scaled_val = 0.0;
                     }
+                } else if (scaling == Scaling::Standard){
+                    double std_dev = std::sqrt(num_stats.variance);
+                    if (std_dev != 0.0) {
+                        scaled_val = (val - num_stats.mean)/std_dev;
+                    } else {
+                        scaled_val = 0.0;
+                    }
+                } else if (scaling == Scaling::Robust){
+                    double iqr = num_stats.q75 - num_stats.q25;
+                    if (iqr != 0.0) {
+                        scaled_val = (val - num_stats.median)/iqr;
+                    } else {
+                        scaled_val = 0.0;
+                    }
                 }
 
                 result.matrix(row, matrix_col_idx) = scaled_val;
@@ -353,21 +385,31 @@ TransformedDataset Dataset::transform(const DatasetInfo& info, Scaling scaling, 
                 const auto& cat_stats = std::get<CategoricalFeatureInfo>(f_info);
 
                 std::string current_val = cat_col.values[row].value();
-
-                for (const auto& category : cat_stats.categories) {
-                    if (current_val == category) {
-                        result.matrix(row, matrix_col_idx) = 1.0;
-                    } else {
-                        result.matrix(row, matrix_col_idx) = 0.0;
+                if (encoding == CategoricalEncoding::OneHot) {
+                    for (const auto& category : cat_stats.categories) {
+                        if (current_val == category) {
+                            result.matrix(row, matrix_col_idx) = 1.0;
+                        } else {
+                            result.matrix(row, matrix_col_idx) = 0.0;
+                        }
+                        matrix_col_idx++;
                     }
-                    matrix_col_idx++;
-                }
 
-                if (cat_stats.missing_count > 0) {
-                    if (current_val == "__MISSING__") {
-                        result.matrix(row, matrix_col_idx) = 1.0;
-                    } else {
-                        result.matrix(row, matrix_col_idx) = 0.0;
+                    if (cat_stats.missing_count > 0) {
+                        if (current_val == "__MISSING__") {
+                            result.matrix(row, matrix_col_idx) = 1.0;
+                        } else {
+                            result.matrix(row, matrix_col_idx) = 0.0;
+                        }
+                        matrix_col_idx++;
+                    }
+                } else {
+                    result.matrix(row, matrix_col_idx) = static_cast<double>(cat_stats.categories.size());
+                    for (std::size_t i = 0; i < cat_stats.categories.size(); i++) {
+                        if (current_val == cat_stats.categories[i]) {
+                            result.matrix(row, matrix_col_idx) = static_cast<double>(i);
+                            break;
+                        }
                     }
                     matrix_col_idx++;
                 }
