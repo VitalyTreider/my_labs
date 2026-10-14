@@ -263,3 +263,157 @@ DatasetInfo Dataset::analyze() const {
 
     return info;
 }
+
+
+void Dataset::impute(const DatasetInfo& info, NumericImputation strategy) {
+    for (const auto& name : feature_names_){
+        Column& col = columns_.at(name);
+        const FeatureInfo& f_info = info.at(name);
+        if (std::holds_alternative<NumericColumn>(col)) {
+            NumericColumn& num_col = std::get<NumericColumn>(col);
+            const auto& num_stats = std::get<NumericFeatureInfo>(f_info);
+
+            for (auto& val : num_col.values){
+                if(strategy == NumericImputation::Median && !val.has_value()){
+                    val = num_stats.median;
+                }
+            }
+        } else {
+            CategoricalColumn& cat_col = std::get<CategoricalColumn>(col);
+            for (auto& val : cat_col.values){
+                if (!val.has_value()){
+                    val = "__MISSING__";
+                }
+            }
+        }
+    }
+}
+
+TransformedDataset Dataset::transform(const DatasetInfo& info, Scaling scaling, Layout layout) const {
+    std::vector<std::string> new_feature_names;
+    std::size_t total_cols = 0;
+
+    // генерируем новые имена и считаем колонки
+    for (const auto& name : feature_names_) {
+        const FeatureInfo& f_info = info.at(name);
+
+        if (std::holds_alternative<NumericFeatureInfo>(f_info)) {
+            // числовой остается одним столбцом
+            new_feature_names.push_back(name);
+            total_cols++;
+        } else if (std::holds_alternative<CategoricalFeatureInfo>(f_info)) {
+            // категориальный делим на несколько (one hot)
+            const auto& cat_stats = std::get<CategoricalFeatureInfo>(f_info);
+            
+            for (const auto& category : cat_stats.categories) {
+                new_feature_names.push_back(name + "_" + category);
+                total_cols++;
+            }
+
+            if (cat_stats.missing_count > 0) {
+                new_feature_names.push_back(name + "___MISSING__");
+                total_cols++;
+            }
+        }
+    }
+
+    
+    TransformedDataset result {
+        Matrix(row_count_, total_cols, layout), 
+        new_feature_names                       
+    };
+
+    for (std::size_t row = 0; row < row_count_; ++row) {
+        std::size_t matrix_col_idx = 0;
+
+        for (const auto& name : feature_names_) {
+            const Column& col = columns_.at(name);
+            const FeatureInfo& f_info = info.at(name);
+
+            if (std::holds_alternative<NumericColumn>(col)) {
+                const auto& num_col = std::get<NumericColumn>(col);
+                const auto& num_stats = std::get<NumericFeatureInfo>(f_info);
+
+                double val = num_col.values[row].value(); 
+                double scaled_val = val;
+
+                if (scaling == Scaling::MinMax) {
+                    if (num_stats.max != num_stats.min) {
+                        scaled_val = (val - num_stats.min) / (num_stats.max - num_stats.min);
+                    } else {
+                        scaled_val = 0.0;
+                    }
+                }
+
+                result.matrix(row, matrix_col_idx) = scaled_val;
+                matrix_col_idx++;
+
+            } else if (std::holds_alternative<CategoricalColumn>(col)) {
+                const auto& cat_col = std::get<CategoricalColumn>(col);
+                const auto& cat_stats = std::get<CategoricalFeatureInfo>(f_info);
+
+                std::string current_val = cat_col.values[row].value();
+
+                for (const auto& category : cat_stats.categories) {
+                    if (current_val == category) {
+                        result.matrix(row, matrix_col_idx) = 1.0;
+                    } else {
+                        result.matrix(row, matrix_col_idx) = 0.0;
+                    }
+                    matrix_col_idx++;
+                }
+
+                if (cat_stats.missing_count > 0) {
+                    if (current_val == "__MISSING__") {
+                        result.matrix(row, matrix_col_idx) = 1.0;
+                    } else {
+                        result.matrix(row, matrix_col_idx) = 0.0;
+                    }
+                    matrix_col_idx++;
+                }
+            }
+        }
+    }
+
+    return result;
+}
+
+void Matrix::save(const std::filesystem::path& path) const {
+    // запись в бинарном режиме
+    std::ofstream file(path, std::ios::binary);
+    if (!file) {
+        throw std::runtime_error("Не удалось открыть файл для сохранения матрицы: " + path.string());
+    }
+
+    // размеры и расположение
+    file.write(reinterpret_cast<const char*>(&rows_), sizeof(rows_));
+    file.write(reinterpret_cast<const char*>(&cols_), sizeof(cols_));
+    file.write(reinterpret_cast<const char*>(&layout_), sizeof(layout_));
+
+    // массив данных
+    file.write(reinterpret_cast<const char*>(data_.data()), data_.size() * sizeof(double));
+}
+
+Matrix Matrix::load(const std::filesystem::path& path) {
+    // открываем файл для чтения в бинарном режиме
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        throw std::runtime_error("Не удалось открыть бинарный файл матрицы: " + path.string());
+    }
+
+    std::size_t rows, cols;
+    Layout layout;
+
+    // читаем данные в том же порядке
+    file.read(reinterpret_cast<char*>(&rows), sizeof(rows));
+    file.read(reinterpret_cast<char*>(&cols), sizeof(cols));
+    file.read(reinterpret_cast<char*>(&layout), sizeof(layout));
+
+    // создаеам пустую матрицу
+    Matrix result(rows, cols, layout);
+
+    // читаем массив данных целиком
+    file.read(reinterpret_cast<char*>(result.data_.data()), result.data_.size() * sizeof(double));
+
+    return result;
+}

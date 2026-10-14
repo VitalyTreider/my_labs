@@ -50,6 +50,59 @@ struct CategoricalFeatureInfo {
 using FeatureInfo = std::variant<NumericFeatureInfo, CategoricalFeatureInfo>;
 using DatasetInfo = std::unordered_map<std::string, FeatureInfo>;
 
+// стратегии предобработки
+enum class NumericImputation { Mean, Median, Zero };
+enum class Scaling { MinMax, Standard, Robust };
+enum class Layout { RowMajor, ColumnMajor };
+
+// класс плотной числовой матрицы
+class Matrix {
+private:
+    std::vector<double> data_;
+    std::size_t rows_;
+    std::size_t cols_;
+    Layout layout_;
+
+public:
+    // конструктор
+    Matrix(std::size_t rows, std::size_t cols, Layout layout = Layout::RowMajor)
+        : rows_(rows), cols_(cols), layout_(layout) {
+        data_.resize(rows * cols, 0.0);
+    }
+
+    // доступ к элементам матрицы
+    double& operator()(std::size_t row, std::size_t column) {
+        if (layout_ == Layout::RowMajor) {
+            return data_[row * cols_ + column];
+        } else {
+            return data_[column * rows_ + row];
+        }
+    }
+
+    const double& operator()(std::size_t row, std::size_t column) const {
+        if (layout_ == Layout::RowMajor) {
+            return data_[row * cols_ + column];
+        } else {
+            return data_[column * rows_ + row];
+        }
+    }
+
+    std::size_t rows() const { return rows_; }
+    std::size_t cols() const { return cols_; }
+    const std::vector<double>& data() const { return data_; }
+    Layout layout() const { return layout_; }
+
+    // методы сериализации 
+    void save(const std::filesystem::path& path) const;
+    static Matrix load(const std::filesystem::path& path);
+};
+
+// финальный результат предобработки
+struct TransformedDataset {
+    Matrix matrix;
+    std::vector<std::string> feature_names;
+};
+
 class Dataset
 {
 private:
@@ -61,7 +114,13 @@ private:
 public:
     static Dataset load(const std::filesystem::path& path, const CsvConfig& config);
     Column& get_column_mut(const std::string& name) { return columns_.at(name); }
+
     DatasetInfo analyze() const;
+
+    void impute(const DatasetInfo& info, NumericImputation strategy);
+
+    TransformedDataset transform(const DatasetInfo& info, Scaling scaling, Layout layout) const;
+
     std::size_t rows() const {return row_count_;}
     std::size_t cols() const {return feature_names_.size();}
     const std::vector<std::string>& feature_names() const {return feature_names_;}

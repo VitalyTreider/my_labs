@@ -59,6 +59,30 @@ int main() {
 
         std::cout << "\n--- Завершение работы, цикл остановлен ---\n";
 
+        std::string answer;
+        std::cout << "\nСохранить преобразованный датасет? (y/n): ";
+        std::cin >> answer;
+
+        if (answer == "y" || answer == "Y") {
+            std::cout << "Выполняем предобработку...\n";
+            
+            // заполняем пропуски
+            ds.impute(info, NumericImputation::Median);
+            
+            // масштабируем числа и кодируем текст
+            TransformedDataset td = ds.transform(info, Scaling::MinMax, Layout::RowMajor);
+            
+            // сохраняем в бин файл
+            std::filesystem::path bin_path = "data/dataset.bin";
+            td.matrix.save(bin_path);
+            
+            std::cout << "Предобработка завершена!\n";
+            std::cout << "Размеры матрицы: " << td.matrix.rows() << " x " << td.matrix.cols() << "\n";
+            
+            std::cout << "CSV:     " << std::filesystem::file_size("data/credit_approval.csv") << " байт\n";
+            std::cout << "Binary:  " << std::filesystem::file_size(bin_path) << " байт\n";
+        }
+
     } catch (const std::exception& ex) {
         std::cerr << "Ошибка: " << ex.what() << "\n";
         return 1;
