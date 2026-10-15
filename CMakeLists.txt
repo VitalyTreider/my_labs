@@ -54,11 +54,19 @@ target_include_directories(lab_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
+include(FetchContent)
+FetchContent_Declare(
+    cxxopts
+    GIT_REPOSITORY https://github.com/jarro2783/cxxopts.git
+    GIT_TAG        v3.2.0
+)
+FetchContent_MakeAvailable(cxxopts)
+
 # --- Консольное приложение lab1_app ------------------------------------------
 add_executable(lab1_app
     src/main.cpp
 )
-target_link_libraries(lab1_app PRIVATE lab_core)
+target_link_libraries(lab1_app PRIVATE lab_core cxxopts::cxxopts)
 
 # --- Тестовое приложение lab_tests (CTest) -----------------------------------
 enable_testing()
