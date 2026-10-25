@@ -6,6 +6,9 @@
 #include<variant>
 #include<unordered_map>
 #include<filesystem>
+#include<span>
+#include"exceptions.hpp"
+#include <utility>
 
 struct CsvConfig
 {
@@ -96,12 +99,32 @@ public:
     // методы сериализации 
     void save(const std::filesystem::path& path) const;
     static Matrix load(const std::filesystem::path& path);
+
+    std::span<const double> operator[](std::size_t row) const { return std::span<const double>(&data_[row * cols_], cols_); }
+    std::span<double> operator[](std::size_t row) { return std::span<double>(&data_[row * cols_], cols_); }
+
+    double& at(std::size_t row, std::size_t column) {
+        if (row >= rows_ || column >= cols_) {
+            throw OutOfRangeError("Matrix index out of range");
+        } else {
+            return (*this)(row, column);
+        }
+    }
+
+    const double& at(std::size_t row, std::size_t column) const {
+        if (row >= rows_ || column >= cols_) {
+            throw OutOfRangeError("Matrix index out of range");
+        } else {
+            return (*this)(row, column);
+        }
+    }
 };
 
 // финальный результат предобработки
 struct TransformedDataset {
     Matrix matrix;
     std::vector<std::string> feature_names;
+    std::vector<double> target;
 };
 
 class Dataset
@@ -120,10 +143,12 @@ public:
 
     void impute(const DatasetInfo& info, NumericImputation strategy);
 
-    TransformedDataset transform(const DatasetInfo& info, Scaling scaling, Layout layout = Layout::RowMajor, CategoricalEncoding encoding = CategoricalEncoding::OneHot) const;
+    TransformedDataset transform(const DatasetInfo& info, Scaling scaling, Layout layout = Layout::RowMajor, CategoricalEncoding encoding = CategoricalEncoding::OneHot, const std::string& target_name = "") const;
 
     std::size_t rows() const {return row_count_;}
     std::size_t cols() const {return feature_names_.size();}
     const std::vector<std::string>& feature_names() const {return feature_names_;}
     const Column& get_column(const std::string& name) const {return columns_.at(name);}
+
+    std::pair<Dataset, Dataset> split(double train_ratio = 0.8) const;
 };

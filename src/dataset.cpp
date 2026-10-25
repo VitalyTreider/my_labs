@@ -303,12 +303,19 @@ void Dataset::impute(const DatasetInfo& info, NumericImputation strategy) {
     }
 }
 
-TransformedDataset Dataset::transform(const DatasetInfo& info, Scaling scaling, Layout layout, CategoricalEncoding encoding) const {
+TransformedDataset Dataset::transform(const DatasetInfo& info, Scaling scaling, Layout layout, CategoricalEncoding encoding, const std::string& target_name) const {
     std::vector<std::string> new_feature_names;
     std::size_t total_cols = 0;
 
+    if (!target_name.empty()) {
+        if (columns_.find(target_name) == columns_.end()) {
+            throw InvalidModelArgumentError("Target column not found: " + target_name);
+        }
+    }
+
     // генерируем новые имена и считаем колонки
     for (const auto& name : feature_names_) {
+        if (name == target_name) continue;
         const FeatureInfo& f_info = info.at(name);
 
         if (std::holds_alternative<NumericFeatureInfo>(f_info)) {
@@ -338,13 +345,15 @@ TransformedDataset Dataset::transform(const DatasetInfo& info, Scaling scaling, 
     
     TransformedDataset result {
         Matrix(row_count_, total_cols, layout), 
-        new_feature_names                       
+        new_feature_names,
+        {}        
     };
 
     for (std::size_t row = 0; row < row_count_; ++row) {
         std::size_t matrix_col_idx = 0;
 
         for (const auto& name : feature_names_) {
+            if (name == target_name) continue;
             const Column& col = columns_.at(name);
             const FeatureInfo& f_info = info.at(name);
 
@@ -354,7 +363,7 @@ TransformedDataset Dataset::transform(const DatasetInfo& info, Scaling scaling, 
 
                 double val = num_col.values[row].value(); 
                 double scaled_val = val;
-
+            
                 if (scaling == Scaling::MinMax) {
                     if (num_stats.max != num_stats.min) {
                         scaled_val = (val - num_stats.min) / (num_stats.max - num_stats.min);
@@ -385,6 +394,7 @@ TransformedDataset Dataset::transform(const DatasetInfo& info, Scaling scaling, 
                 const auto& cat_stats = std::get<CategoricalFeatureInfo>(f_info);
 
                 std::string current_val = cat_col.values[row].value();
+                
                 if (encoding == CategoricalEncoding::OneHot) {
                     for (const auto& category : cat_stats.categories) {
                         if (current_val == category) {
@@ -412,6 +422,32 @@ TransformedDataset Dataset::transform(const DatasetInfo& info, Scaling scaling, 
                         }
                     }
                     matrix_col_idx++;
+                }
+            }
+        }
+    }
+
+    if (!target_name.empty()) {
+        result.target.resize(row_count_);
+        const Column& target_col = columns_.at(target_name);
+        const FeatureInfo& target_info = info.at(target_name);
+        if (std::holds_alternative<NumericColumn>(target_col)) {
+            const auto& num_col = std::get<NumericColumn>(target_col);
+            for (std::size_t row = 0; row < row_count_; ++row) {
+                result.target[row] = num_col.values[row].value();
+            }
+        } else {
+            const auto& cat_col = std::get<CategoricalColumn>(target_col);
+            const auto& cat_stats = std::get<CategoricalFeatureInfo>(target_info);
+
+            for (std::size_t row = 0; row < row_count_; ++row) {
+                const std::string& val = cat_col.values[row].value();
+                result.target[row] = static_cast<double>(cat_stats.categories.size());
+                for (std::size_t i = 0; i < cat_stats.categories.size(); ++i) {
+                    if (val == cat_stats.categories[i]) {
+                        result.target[row] = static_cast<double>(i);
+                        break;
+                    }
                 }
             }
         }
@@ -458,4 +494,59 @@ Matrix Matrix::load(const std::filesystem::path& path) {
     file.read(reinterpret_cast<char*>(result.data_.data()), result.data_.size() * sizeof(double));
 
     return result;
+}
+
+std::pair<Dataset, Dataset> Dataset::split(double train_ratio) const {
+    if (train_ratio <= 0.0 || train_ratio >= 1.0) {
+        throw InvalidModelArgumentError("train_ratio must be strictly between 0 and 1");
+    }
+
+    std::size_t train_rows = static_cast<std::size_t>(row_count_ * train_ratio);
+
+    if (train_rows == 0 || train_rows == row_count_) {
+        throw InvalidModelArgumentError("train_rows must not be empty or equal to the number of rows");
+    }
+
+    Dataset train_ds;
+    Dataset test_ds;
+
+    train_ds.feature_names_ = feature_names_;
+    test_ds.feature_names_ = feature_names_;
+
+    train_ds.row_count_ = train_rows;
+    test_ds.row_count_ = row_count_ - train_rows;
+
+    for (const auto& name : feature_names_) {
+        const Column& col = columns_.at(name);
+        if (std::holds_alternative<NumericColumn>(col)) {
+            NumericColumn train_col;
+            NumericColumn test_col;
+            const auto& orig_col = std::get<NumericColumn>(col);
+            for (std::size_t i = 0; i < train_rows; ++i) {
+                train_col.values.push_back(orig_col.values[i]);
+            }
+
+            for (std::size_t i = train_rows; i < row_count_; ++i) {
+                test_col.values.push_back(orig_col.values[i]);
+            }
+
+            train_ds.columns_[name] = std::move(train_col);
+            test_ds.columns_[name] = std::move(test_col);
+        } else {
+            CategoricalColumn train_col;
+            CategoricalColumn test_col;
+            const auto& orig_col = std::get<CategoricalColumn>(col);
+            for (std::size_t i = 0; i < train_rows; ++i) {
+                train_col.values.push_back(orig_col.values[i]);
+            }
+
+            for (std::size_t i = train_rows; i < row_count_; ++i) {
+                test_col.values.push_back(orig_col.values[i]);
+            }
+
+            train_ds.columns_[name] = std::move(train_col);
+            test_ds.columns_[name] = std::move(test_col);
+        }
+    }
+    return {train_ds, test_ds};
 }
