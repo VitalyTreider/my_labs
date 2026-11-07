@@ -49,6 +49,7 @@ endif()
 add_library(lab_core STATIC
     src/dataset.cpp
     src/view.cpp
+    src/decision_stump.cpp
 )
 target_include_directories(lab_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
