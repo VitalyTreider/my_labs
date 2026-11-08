@@ -133,7 +133,6 @@ void DecisionStump::fit(const Matrix& features, std::span<const double> target) 
 
     std::vector<std::size_t> order(n);
     std::vector<std::size_t> left_counts(id_to_label.size(), 0);
-    std::vector<std::size_t> right_counts(id_to_label.size(), 0);
 
     double best_score = -std::numeric_limits<double>::infinity();
 
@@ -158,7 +157,6 @@ void DecisionStump::fit(const Matrix& features, std::span<const double> target) 
 
             if (criterion_ == SplitCriterion::Gini) {
                 std::ranges::fill(left_counts, 0);
-                right_counts = total_class_counts;
             }
 
             //цикл кандидатов в пороги
@@ -174,13 +172,12 @@ void DecisionStump::fit(const Matrix& features, std::span<const double> target) 
                 } else {
                     const std::size_t c = encoded_target[i];
                     const double a = static_cast<double>(left_counts[c]);
-                    const double b = static_cast<double>(right_counts[c]);
+                    const double b = static_cast<double>(total_class_counts[c] - left_counts[c]);
 
                     A_left += 2.0 * a + 1.0;
                     A_right += 1.0 - 2.0 * b;
 
                     left_counts[c] += 1;
-                    right_counts[c] -= 1;
                 }
 
             

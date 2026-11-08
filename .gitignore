@@ -14,3 +14,5 @@ data/
 .clinerulesopencode.json
 .clinerules
 opencode.json
+docs/doxygen/
+Doxyfile
